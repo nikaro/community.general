@@ -1,14 +1,24 @@
 #!/usr/bin/python
 
 from __future__ import absolute_import, division, print_function
+
+import os
+import re
+
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.parsing.convert_bool import BOOLEANS, boolean
+from ansible.module_utils.six import string_types
+
 __metaclass__ = type
 
 DOCUMENTATION = """
 module: source_file
 short_description: Source remote bash/dotenv file
 description:
-  - This module is used to register host variables from a remote bash/dotenv-like file.
-  - It handles boolean value (`MY_VAR=1`) and has a basic handling of list (`MY_VAR=one,two,three`) and dictionnary (`MY_VAR=a=1;b=2;c=3`).
+  - This module register variables from a remote bash/dotenv-like file.
+  - It handles boolean (`MY_VAR=1`).
+  - It handles basic list (`MY_VAR=one,two,three`).
+  - It handles basic dictionnary (`MY_VAR=a=1;b=2;c=3`).
 author:
   - "Nicolas Karolak (@nikaro)"
 options:
@@ -33,30 +43,30 @@ options:
 
 EXAMPLES = """
 - name: source my conf
+  register: my_conf
   source_file:
-    prefix: my_
     path: /root/my_conf.sh
     lower: true
+
+- name: show my conf
+  debug:
+    var: my_conf.vars
 """
 
 RETURN = """
 """
 
-import os
-import re
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.parsing.convert_bool import BOOLEANS, boolean
-from ansible.module_utils.six import integer_types, string_types
-
 
 def typed_value(value):
     # remove surrounding quotes
     if (
-        (value.startswith("'") and value.endswith("'"))
-        or (value.startswith('"') and value.endswith('"'))
+        isinstance(value, string_types)
+        and (
+            (value.startswith("'") and value.endswith("'"))
+            or (value.startswith('"') and value.endswith('"'))
+        )
     ):
-        value = value[1:-1]
+        value = value[1:-1].strip()
 
     # handle list value
     if "," in value:
@@ -97,16 +107,20 @@ def main():
 
     variables = {}
 
-    regex_key = re.compile("^[a-zA-Z][a-zA-Z0-9_-]*$")
-    regex_key_value = re.compile("^(?P<key>[a-zA-Z][a-zA-Z0-9_-]*)=(?P<value>.*)")
+    key_pattern = "[a-zA-Z_][a-zA-Z0-9_-]*"
+    regex_key = re.compile("^" + key_pattern + "$")
+    regex_key_value = re.compile("^(?P<key>" + key_pattern + ")=(?P<value>.*)")
 
     if not os.path.isfile(path):
-        module.fail_json(msg="'%s' does not exist or is not a file" % path, **result)
+        module.fail_json(
+            msg="'%s' does not exist or is not a file" % path, **result
+        )
 
     if prefix and not regex_key.match(prefix):
         module.fail_json(
-            msg="'%s' is not a valid prefix it must starts with a letter or underscore"
-            " character, and contains only letters, numbers and underscores" % prefix,
+            msg="'%s' is not a valid prefix it must starts with a letter or"
+            " underscore character, and contains only letters, numbers and"
+            " underscores" % prefix,
             **result
         )
 
@@ -133,10 +147,9 @@ def main():
             # check key validity
             if not regex_key.match(key):
                 module.fail_json(
-                    msg="'%s' is not a valid variable name it must starts with a letter or "
-                    "underscore character, and contains only letters, numbers and underscores"
-                    % key,
-                    **result
+                    msg="'%s' is not a valid variable name it must starts with"
+                    " a letter or underscore character, and contains only"
+                    " letters, numbers and underscores" % key, **result
                 )
 
             # parse value and apply correct type operations
